@@ -4,6 +4,7 @@ from traceback import format_exc
 from os import urandom
 from random import shuffle
 from validators import Validator, ValidateError
+from base64 import b64decode, b64encode
 import sqlite3
 import json
 
@@ -12,6 +13,7 @@ app = Flask(__name__)
 DATABASE = 'db/clients.sqlite'
 
 validators = {}
+
 
 def get_db():
     db = getattr(g, '_database', None)
@@ -31,7 +33,7 @@ def verify_user(uid: str, token: str):
     if not uid or not token:
         return False
     try:
-        app.logger.warn(f"Query uid {uid} token {token}")
+        app.logger.warn("Query uid {} token {}".format(uid, token))
         res = query_db('SELECT * FROM AUTHDATA WHERE uid=? AND token=?', [uid, token])
         app.logger.warn("!! {}".format(res))
         if len(res) == 0:
@@ -56,6 +58,7 @@ def startup():
     validators['slot'] = Validator("PORT/SLOT validator", r"^[0-9]+$")
     validators['port'] = validators['slot']
     validators['config'] = Validator("CONFIG validator", r"^[a-zA-Z0-9\=\/\\]*$")
+
 
 @app.errorhandler(HTTPException)
 def handle_exception(e):
@@ -112,14 +115,15 @@ def get():
         # json is like {"used": [], "unused": [0, 1, 2]}
         shuffle(res)
         srv = None
+        slot = None
         for o in res:
             o = list(o)
             obj = json.loads(o[3])
             if len(obj["unused"]) != 0:
-                e = obj['unused'][0]
-                app.logger.warn("Selected server: {}; slot: {}".format(o, e))
+                slot = obj['unused'][0]
+                app.logger.warn("Selected server: {}; slot: {}".format(o, slot))
                 del obj['unused'][0]
-                obj['used'].append(e)
+                obj['used'].append(slot)
                 obj['used'].sort()
                 obj['unused'].sort()
                 o[3] = json.dumps(obj)
@@ -135,8 +139,10 @@ def get():
         query_db("UPDATE CLIENTS SET slot_info=? WHERE uid=?", [srv[3], srv[0]])
 
         # todo read file here
-        config = "unimplemented"
-        #
+        with open("configs/{}_{}.ovpn".format(srv[0], slot)) as f:
+            config = b64encode(bytes(f.read(), 'utf-8')).decode()
+        # todo validate here
+        ##
 
         resp["code"] = 0
         resp["msg"] = "OK"
@@ -204,9 +210,51 @@ def update():
         resp["code"] = 1
         resp["msg"] = "Unauthorized"
         return resp
-    
 
+    try:
+        res = query_db("SELECT slot_info FROM CLIENTS WHERE uid=?", [uid])
+        if len(res) == 0:
+            app.logger.error("No entry in CLIENTS for uid: {}".format(uid))
+            resp["code"] = 3
+            resp["msg"] = "Internal error"
+            return resp
 
+        obj = json.loads(res[0][0])
+
+        app.logger.warn("OBJECT: {}".format(obj))
+
+        # json is like {"used": [0], "unused": [1, 2]}
+        if len(obj['used']) == 0:
+            resp["code"] = 2
+            resp["msg"] = "All config slots are unused"
+            return resp
+
+        slot = obj['used'][-1]
+        del obj['used'][-1]
+        obj['unused'].append(slot)
+        obj['unused'].sort()
+
+        query_db("UPDATE CLIENTS SET slot_info=? WHERE uid=?", [json.dumps(obj), uid])
+
+    except Exception as e:
+        app.logger.error("Error during adding entry to CLIENTS table: {}".format(format_exc(e)))
+        resp["code"] = 3
+        resp["msg"] = "Internal error"
+        return resp
+
+    try:
+        config = b64decode(config)
+    except Exception as e:
+        resp["code"] = 2
+        resp["msg"] = "Could not decode base64 config"
+        return resp
+
+    with open("configs/{}_{}.ovpn".format(uid, slot), "w") as f:
+        f.write(config.decode())
+
+    resp["code"] = 0
+    resp["msg"] = "OK"
+    get_db().commit()
     return resp
 
 
@@ -228,7 +276,7 @@ def register():
 
     try:
         res = query_db('INSERT INTO CLIENTS (uid,ip,port,country,slot_info) VALUES (?,?,?,?,?)',
-                       [uid, ip, -1, 'UNKNOWN', json.dumps({"used": [], "unused": [i for i in range(3)]})])
+                       [uid, ip, -1, 'UNKNOWN', json.dumps({"used": [i for i in range(3)], "unused": []})])
     except Exception as e:
         app.logger.error("Error during adding entry to CLIENTS table: {}".format(format_exc(e)))
         resp["code"] = 3

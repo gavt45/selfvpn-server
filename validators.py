@@ -14,5 +14,5 @@ class Validator:
         self._name = _name
 
     def validate(self, var):
-        if not match(self._regex, var):
+        if not var or not match(self._regex, var):
             raise ValidateError("{} validator unmatched {}".format(self._name, var))
