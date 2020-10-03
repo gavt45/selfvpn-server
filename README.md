@@ -37,9 +37,9 @@ ___
         - `msg` - status message
 1. `POST` `/register`
     * __Description:__
-        Updates config for some slot by login data
+        Registers new client
     * __Input parameters:__
-        - `port` - port
+        - `port` - port(optional)
     * __Output parameters:__
         - `code` - response code
         - `msg` - status message
