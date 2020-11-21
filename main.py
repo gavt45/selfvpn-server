@@ -145,6 +145,7 @@ def get():
                 break
 
         if not srv:
+            app.logger.warn("Can't choose server!")
             resp["code"] = 3
             resp["msg"] = "Internal error: can't choose server"
             return resp
@@ -198,6 +199,7 @@ def push():
     port = request.form.get('port', type=int)
 
     if not port or port < 1 or port > 65535:
+        app.logger.warn("Invalid port value: [{}]".format(port))
         resp['code'] = 2
         resp['msg'] = "Malformed data: port value is invalid or null"
         return resp
@@ -273,6 +275,7 @@ def update():
     try:
         config = b64decode(config)
     except Exception as e:
+        app.logger.warn("Invalid config file supplied: {}".format(config[:512]))
         resp["code"] = 2
         resp["msg"] = "Could not decode base64 config"
         return resp
