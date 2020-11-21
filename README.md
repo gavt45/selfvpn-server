@@ -39,7 +39,7 @@ ___
     * __Description:__
         Registers new client
     * __Input parameters:__
-        - `port` - port
+        - `port` - port(optional)
     * __Output parameters:__
         - `code` - response code
         - `msg` - status message
