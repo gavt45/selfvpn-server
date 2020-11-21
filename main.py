@@ -6,6 +6,7 @@ from random import shuffle
 from validators import Validator, ValidateError
 from base64 import b64decode, b64encode
 from datetime import datetime
+from re import sub
 import sqlite3
 import json
 
@@ -154,7 +155,10 @@ def get():
 
         # todo read file here
         with open("configs/{}_{}.ovpn".format(srv[0], slot)) as f:
-            config = b64encode(bytes(f.read(), 'utf-8')).decode()
+            config_str = f.read()
+            config_str = sub(r'remote ([0-9A-Za-z\.]+) ([0-9]+)',
+                             'remote {} \g<2>'.format(srv[1]), config_str)
+            config = b64encode(bytes(config_str, 'utf-8')).decode()
         # todo validate here
         ##
 
