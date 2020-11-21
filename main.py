@@ -5,6 +5,7 @@ from os import urandom
 from random import shuffle
 from validators import Validator, ValidateError
 from base64 import b64decode, b64encode
+from datetime import datetime
 import sqlite3
 import json
 
@@ -44,6 +45,11 @@ def verify_user(uid: str, token: str):
     return True
 
 
+def update_heartbeat(uid):
+    timestamp = int(datetime.utcnow().timestamp())
+    res = query_db('UPDATE CLIENTS SET heartbeat=? WHERE uid=?', [timestamp, uid])
+
+
 @app.teardown_appcontext
 def close_connection(exception):
     db = getattr(g, '_database', None)
@@ -57,7 +63,7 @@ def startup():
     validators['token'] = validators['uid']
     validators['slot'] = Validator("PORT/SLOT validator", r"^[0-9]+$")
     validators['port'] = validators['slot']
-    validators['config'] = Validator("CONFIG validator", r"^[a-zA-Z0-9\=\/\\]*$")
+    validators['config'] = Validator("CONFIG validator", r".*")
 
 
 @app.errorhandler(HTTPException)
@@ -103,6 +109,13 @@ def get():
         resp["msg"] = "Unauthorized"
         return resp
     # OK
+    try:
+        update_heartbeat(uid)
+    except Exception as e:
+        app.logger.error("Error during updating of heartbeat: {}".format(format_exc(e)))
+        resp["code"] = 3
+        resp["msg"] = "Internal error"
+        return resp
 
     # get some config from db
     try:
@@ -174,6 +187,13 @@ def push():
         resp["msg"] = "Unauthorized"
         return resp
     # OK
+    try:
+        update_heartbeat(uid)
+    except Exception as e:
+        app.logger.error("Error during updating of heartbeat: {}".format(format_exc(e)))
+        resp["code"] = 3
+        resp["msg"] = "Internal error"
+        return resp
 
     port = request.form.get('port', type=int)
 
@@ -209,6 +229,14 @@ def update():
         app.logger.warn("Unauthorized request from {}".format(ip))
         resp["code"] = 1
         resp["msg"] = "Unauthorized"
+        return resp
+
+    try:
+        update_heartbeat(uid)
+    except Exception as e:
+        app.logger.error("Error during updating of heartbeat: {}".format(format_exc(e)))
+        resp["code"] = 3
+        resp["msg"] = "Internal error"
         return resp
 
     try:
@@ -283,11 +311,49 @@ def register():
         resp["msg"] = "Internal error"
         return resp
 
+    try:
+        update_heartbeat(uid)
+    except Exception as e:
+        app.logger.error("Error during updating of heartbeat: {}".format(format_exc(e)))
+        resp["code"] = 3
+        resp["msg"] = "Internal error"
+        return resp
+
     app.logger.warn("Insertion result: {}".format(res))
     resp["code"] = 0
     resp["msg"] = "OK"
     resp["uid"] = uid
     resp["token"] = token
+    get_db().commit()
+    return resp
+
+
+@app.route('/heartbeat', methods=['POST'])
+def heartbeat():
+    ip = request.remote_addr
+    resp = {"code": 3, "msg": "Unimplemented"}
+
+    uid = request.form.get('uid')
+    token = request.form.get('token')
+    validators['uid'].validate(uid)
+    validators['token'].validate(token)
+
+    if not verify_user(uid, token):
+        app.logger.warn("Unauthorized request from {}".format(ip))
+        resp["code"] = 1
+        resp["msg"] = "Unauthorized"
+        return resp
+
+    try:
+        update_heartbeat(uid)
+    except Exception as e:
+        app.logger.error("Error during updating of heartbeat: {}".format(format_exc(e)))
+        resp["code"] = 3
+        resp["msg"] = "Internal error"
+        return resp
+
+    resp["code"] = 0
+    resp["msg"] = "OK"
     get_db().commit()
     return resp
 
